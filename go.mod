@@ -1,3 +1,3 @@
-module github.com/texttheater/golang-levenshtein
+module github.com/TomTonic/levenshtein
 
 go 1.25.3

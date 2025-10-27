@@ -1,10 +1,25 @@
-// This package implements the Levenshtein algorithm for computing the
-// similarity between two strings. The central function is MatrixForStrings,
-// which computes the Levenshtein matrix. The functions DistanceForMatrix,
-// EditScriptForMatrix and RatioForMatrix read various interesting properties
-// off the matrix. The package also provides the convenience functions
-// DistanceForStrings, EditScriptForStrings and RatioForStrings for going
-// directly from two strings to the property of interest.
+// Package levenshtein implements the Levenshtein edit distance algorithm for
+// sequences of runes (Unicode code points). The package focuses on clarity
+// and small API surface: it provides functions to compute an edit distance,
+// the underlying dynamic programming matrix, a normalized similarity ratio,
+// and an edit script (sequence of operations) to transform one sequence into
+// another.
+//
+// Important: callers should convert Go strings to []rune before calling the
+// public functions in this package. Go strings are byte sequences and indexing
+// them yields bytes; converting to []rune ensures Unicode code points are
+// compared as single elements (see README for examples).
+//
+// The main functions are:
+//   - MatrixForStrings: build the full DP matrix (useful for backtraces).
+//   - DistanceForStrings: compute the edit distance using an optimized
+//     two-row approach (lower memory).
+//   - EditScriptForStrings: backtrace an optimal edit script given the input
+//     sequences and options.
+//
+// The Options struct lets you customize insertion, deletion and substitution
+// costs and supply a custom Match function (for case-insensitive comparisons
+// or language-specific matching).
 package levenshtein
 
 import (
@@ -13,6 +28,14 @@ import (
 	"os"
 )
 
+// EditOperation describes a single edit operation in an edit script produced
+// by EditScriptForStrings or EditScriptForMatrix.
+//
+// Possible values:
+//   - Ins: insertion (element present in target but not source)
+//   - Del: deletion (element present in source but not target)
+//   - Sub: substitution (source element replaced by target element)
+//   - Match: elements match (no cost if Matches returns true)
 type EditOperation int
 
 const (
@@ -22,16 +45,41 @@ const (
 	Match
 )
 
+// EditScript is a sequence of EditOperation values describing an edit
+// procedure to transform a source sequence into a target sequence. The
+// operations are ordered from left-to-right (source/target prefixes).
 type EditScript []EditOperation
 
+// MatchFunction is used to determine whether two runes are considered a
+// match. The function should be symmetric and must not have side-effects.
+// It must return true if the two runes are considered equal for matching
+// purposes (for example, case-insensitive matching can be implemented by
+// comparing unicode.ToLower(a) == unicode.ToLower(b)).
 type MatchFunction func(rune, rune) bool
 
-// IdenticalRunes is the default MatchFunction: it checks whether two runes are
-// identical.
+// IdenticalRunes is the default MatchFunction: it checks whether two runes
+// are identical (==). Use this for strict, case-sensitive Unicode-aware
+// comparisons.
 func IdenticalRunes(a rune, b rune) bool {
 	return a == b
 }
 
+// Options controls the costs associated with edit operations and the matching
+// function used to decide whether two runes count as equal.
+//
+// Fields:
+//   - InsCost: cost of inserting a rune from the target into the source.
+//   - DelCost: cost of deleting a rune from the source.
+//   - SubCost: cost of substituting (replacing) one rune with another. If
+//     SubCost is greater than InsCost + DelCost the algorithm will
+//     prefer a delete+insert instead of a substitution.
+//   - Matches: a MatchFunction that returns true when two runes are
+//     considered equal (no substitution cost).
+//
+// Contracts / boundaries: costs are treated as ints and the algorithm assumes
+// non-negative costs. Negative costs will produce undefined or nonsensical
+// results and should be avoided. There is no explicit overflow checking on
+// very large costs; prefer small positive integers (1, 2, ...).
 type Options struct {
 	InsCost int
 	DelCost int
@@ -39,9 +87,10 @@ type Options struct {
 	Matches MatchFunction
 }
 
-// DefaultOptions is the default options without substitution: insertion cost
-// is 1, deletion cost is 1, substitution cost is 2 (meaning insert and delete
-// will be used instead), and two runes match iff they are identical.
+// DefaultOptions is a sensible default Options value where substitution is
+// effectively disabled (SubCost == 2 while InsCost + DelCost == 2) so that
+// a substitution is implemented as delete+insert. Use this when you prefer
+// substitutions to be treated as two operations.
 var DefaultOptions Options = Options{
 	InsCost: 1,
 	DelCost: 1,
@@ -49,9 +98,9 @@ var DefaultOptions Options = Options{
 	Matches: IdenticalRunes,
 }
 
-// DefaultOptionsWithSub is the default options with substitution: insertion
-// cost is 1, deletion cost is 1, substitution cost is 1, and two runes match
-// iff they are identical.
+// DefaultOptionsWithSub is similar to DefaultOptions but gives substitution a
+// cost of 1. With these options a substitution is cheaper than delete+insert
+// and will often be chosen if two runes differ.
 var DefaultOptionsWithSub Options = Options{
 	InsCost: 1,
 	DelCost: 1,
@@ -59,6 +108,8 @@ var DefaultOptionsWithSub Options = Options{
 	Matches: IdenticalRunes,
 }
 
+// String prints a concise human-readable representation for an
+// EditOperation. Useful for debugging and tests.
 func (operation EditOperation) String() string {
 	switch operation {
 	case Match:
@@ -71,10 +122,30 @@ func (operation EditOperation) String() string {
 	return "del"
 }
 
-// DistanceForStrings returns the edit distance between source and target.
+// DistanceForStrings returns the minimal edit distance between the provided
+// source and target rune slices using the costs defined in op.
 //
-// It has a runtime proportional to len(source) * len(target) and memory use
-// proportional to len(target).
+// Parameters:
+//   - source: source sequence as []rune. Length >= 0.
+//   - target: target sequence as []rune. Length >= 0.
+//   - op: Options controlling costs and matching function (see Options
+//     documentation). Costs should be non-negative integers.
+//
+// Return value:
+//   - an int representing the minimal total cost to transform source into
+//     target using insertions, deletions and (optionally) substitutions.
+//
+// Complexity: time O(len(source)*len(target)), memory O(len(target)). For
+// large inputs consider using MatrixForStrings when you need the full matrix
+// (EditScriptForStrings calls MatrixForStrings internally).
+//
+// Example:
+//
+//	distance := DistanceForStrings([]rune("kitten"), []rune("sitting"), DefaultOptions)
+//
+// Notes:
+//   - The function expects rune slices rather than raw strings so that Unicode
+//     code points are handled correctly.
 func DistanceForStrings(source []rune, target []rune, op Options) int {
 	// Note: This algorithm is a specialization of MatrixForStrings.
 	// MatrixForStrings returns the full edit matrix. However, we only need a
@@ -115,24 +186,37 @@ func DistanceForStrings(source []rune, target []rune, op Options) int {
 	return matrix[(height-1)%2][width-1]
 }
 
-// DistanceForMatrix reads the edit distance off the given Levenshtein matrix.
+// DistanceForMatrix extracts the edit distance from a Levenshtein matrix
+// produced by MatrixForStrings. The matrix must be a (height x width) table
+// where height == len(source)+1 and width == len(target)+1 when built by
+// MatrixForStrings.
+//
+// Return value: bottom-right cell containing the minimal edit cost.
 func DistanceForMatrix(matrix [][]int) int {
 	return matrix[len(matrix)-1][len(matrix[0])-1]
 }
 
-// RatioForStrings returns the Levenshtein ratio for the given strings. The
-// ratio is computed as follows:
+// RatioForStrings returns a normalized similarity score in the range [0,1]
+// computed from the Levenshtein distance. The formula used is:
 //
 //	(sourceLength + targetLength - distance) / (sourceLength + targetLength)
+//
+// where sourceLength == len(source) and targetLength == len(target).
+//
+// Notes:
+//   - If both source and target are empty (sum == 0) the function returns 0.
+//     This mirrors the behavior in RatioForMatrix and avoids division by zero.
+//   - Higher values indicate more similar sequences; 1.0 means identical and
+//     0.0 means no similarity under the chosen cost model.
 func RatioForStrings(source []rune, target []rune, op Options) float64 {
 	matrix := MatrixForStrings(source, target, op)
 	return RatioForMatrix(matrix)
 }
 
-// RatioForMatrix returns the Levenshtein ratio for the given matrix. The ratio
-// is computed as follows:
-//
-//	(sourceLength + targetLength - distance) / (sourceLength + targetLength)
+// RatioForMatrix computes the normalized similarity ratio from a DP matrix
+// produced by MatrixForStrings. The ratio is in [0,1]. If the combined length
+// of source and target is zero the function returns 0 to avoid division by
+// zero.
 func RatioForMatrix(matrix [][]int) float64 {
 	sourcelength := len(matrix) - 1
 	targetlength := len(matrix[0]) - 1
@@ -146,13 +230,16 @@ func RatioForMatrix(matrix [][]int) float64 {
 	return float64(sum-dist) / float64(sum)
 }
 
-// MatrixForStrings generates a 2-D array representing the dynamic programming
-// table used by the Levenshtein algorithm, as described e.g. here:
-// http://www.let.rug.nl/kleiweg/lev/
-// The reason for putting the creation of the table into a separate function is
-// that it cannot only be used for reading of the edit distance between two
-// strings, but also e.g. to backtrace an edit script that provides an
-// alignment between the characters of both strings.
+// MatrixForStrings builds and returns the full Levenshtein dynamic
+// programming matrix for the given source and target rune slices and
+// Options. The returned matrix has dimensions (len(source)+1) x
+// (len(target)+1). Rows correspond to prefixes of source and columns to
+// prefixes of target; the bottom-right cell contains the minimal edit cost.
+//
+// Use this function when you need the full matrix for backtracing an edit
+// script, visualizing the computation, or computing additional properties.
+// If you only need the scalar distance, prefer DistanceForStrings which uses
+// O(len(target)) memory.
 func MatrixForStrings(source []rune, target []rune, op Options) [][]int {
 	// Make a 2-D matrix. Rows correspond to prefixes of source, columns to
 	// prefixes of target. Cells will contain edit distances.
@@ -190,21 +277,31 @@ func MatrixForStrings(source []rune, target []rune, op Options) [][]int {
 	return matrix
 }
 
-// EditScriptForStrings returns an optimal edit script to turn source into
-// target.
+// EditScriptForStrings returns an optimal EditScript (sequence of
+// EditOperation values) that transforms source into target using the costs
+// defined in op. The function computes the full matrix and then backtraces
+// an optimal path.
+//
+// Example:
+//
+//	script := EditScriptForStrings([]rune("a"), []rune("aa"), DefaultOptions)
+//	// script is something like {Match, Ins}
 func EditScriptForStrings(source []rune, target []rune, op Options) EditScript {
 	return backtrace(len(source), len(target),
 		MatrixForStrings(source, target, op), op)
 }
 
-// EditScriptForMatrix returns an optimal edit script based on the given
-// Levenshtein matrix.
+// EditScriptForMatrix computes an optimal edit script using an already
+// computed Levenshtein matrix. The matrix must be produced by
+// MatrixForStrings and have dimensions (len(source)+1) x (len(target)+1).
 func EditScriptForMatrix(matrix [][]int, op Options) EditScript {
 	return backtrace(len(matrix)-1, len(matrix[0])-1, matrix, op)
 }
 
-// WriteMatrix writes a visual representation of the given matrix for the given
-// strings to the given writer.
+// WriteMatrix prints a human-readable representation of the DP matrix to the
+// supplied writer. This can be used for debugging and demonstration. The
+// matrix must correspond to the provided source and target rune slices (i.e.
+// have dimensions (len(source)+1) x (len(target)+1)).
 func WriteMatrix(source []rune, target []rune, matrix [][]int, writer io.Writer) {
 	_, _ = fmt.Fprintf(writer, "    ")
 	for _, targetRune := range target {
@@ -225,9 +322,9 @@ func WriteMatrix(source []rune, target []rune, matrix [][]int, writer io.Writer)
 	}
 }
 
-// LogMatrix writes a visual representation of the given matrix for the given
-// strings to os.Stderr. This function is deprecated, use
-// WriteMatrix(source, target, matrix, os.Stderr) instead.
+// LogMatrix writes a visual representation of the given matrix to
+// os.Stderr. It is a convenience wrapper around WriteMatrix and is
+// deprecated in favor of using WriteMatrix with an explicit writer.
 func LogMatrix(source []rune, target []rune, matrix [][]int) {
 	WriteMatrix(source, target, matrix, os.Stderr)
 }

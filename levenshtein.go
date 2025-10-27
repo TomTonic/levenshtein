@@ -60,11 +60,12 @@ var DefaultOptionsWithSub Options = Options{
 }
 
 func (operation EditOperation) String() string {
-	if operation == Match {
+	switch operation {
+	case Match:
 		return "match"
-	} else if operation == Ins {
+	case Ins:
 		return "ins"
-	} else if operation == Sub {
+	case Sub:
 		return "sub"
 	}
 	return "del"
@@ -87,7 +88,7 @@ func DistanceForStrings(source []rune, target []rune, op Options) int {
 	// Initialize trivial distances (from/to empty string). That is, fill
 	// the left column and the top row with row/column indices multiplied
 	// by deletion/insertion cost.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		matrix[i] = make([]int, width)
 		matrix[i][0] = i * op.DelCost
 	}
@@ -122,7 +123,7 @@ func DistanceForMatrix(matrix [][]int) int {
 // RatioForStrings returns the Levenshtein ratio for the given strings. The
 // ratio is computed as follows:
 //
-//     (sourceLength + targetLength - distance) / (sourceLength + targetLength)
+//	(sourceLength + targetLength - distance) / (sourceLength + targetLength)
 func RatioForStrings(source []rune, target []rune, op Options) float64 {
 	matrix := MatrixForStrings(source, target, op)
 	return RatioForMatrix(matrix)
@@ -131,7 +132,7 @@ func RatioForStrings(source []rune, target []rune, op Options) float64 {
 // RatioForMatrix returns the Levenshtein ratio for the given matrix. The ratio
 // is computed as follows:
 //
-//     (sourceLength + targetLength - distance) / (sourceLength + targetLength)
+//	(sourceLength + targetLength - distance) / (sourceLength + targetLength)
 func RatioForMatrix(matrix [][]int) float64 {
 	sourcelength := len(matrix) - 1
 	targetlength := len(matrix[0]) - 1
@@ -163,7 +164,7 @@ func MatrixForStrings(source []rune, target []rune, op Options) [][]int {
 	// Initialize trivial distances (from/to empty string). That is, fill
 	// the left column and the top row with row/column indices multiplied
 	// by deletion/insertion cost.
-	for i := 0; i < height; i++ {
+	for i := range height {
 		matrix[i] = make([]int, width)
 		matrix[i][0] = i * op.DelCost
 	}
@@ -211,13 +212,13 @@ func WriteMatrix(source []rune, target []rune, matrix [][]int, writer io.Writer)
 	}
 	fmt.Fprintf(writer, "\n")
 	fmt.Fprintf(writer, "  %2d", matrix[0][0])
-	for j, _ := range target {
+	for j := range target {
 		fmt.Fprintf(writer, " %2d", matrix[0][j+1])
 	}
 	fmt.Fprintf(writer, "\n")
 	for i, sourceRune := range source {
 		fmt.Fprintf(writer, "%c %2d", sourceRune, matrix[i+1][0])
-		for j, _ := range target {
+		for j := range target {
 			fmt.Fprintf(writer, " %2d", matrix[i+1][j+1])
 		}
 		fmt.Fprintf(writer, "\n")
@@ -249,13 +250,6 @@ func backtrace(i int, j int, matrix [][]int, op Options) EditScript {
 
 func min(a int, b int) int {
 	if b < a {
-		return b
-	}
-	return a
-}
-
-func max(a int, b int) int {
-	if b > a {
 		return b
 	}
 	return a

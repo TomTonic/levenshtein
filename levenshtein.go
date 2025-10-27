@@ -206,22 +206,22 @@ func EditScriptForMatrix(matrix [][]int, op Options) EditScript {
 // WriteMatrix writes a visual representation of the given matrix for the given
 // strings to the given writer.
 func WriteMatrix(source []rune, target []rune, matrix [][]int, writer io.Writer) {
-	fmt.Fprintf(writer, "    ")
+	_, _ = fmt.Fprintf(writer, "    ")
 	for _, targetRune := range target {
-		fmt.Fprintf(writer, "  %c", targetRune)
+		_, _ = fmt.Fprintf(writer, "  %c", targetRune)
 	}
-	fmt.Fprintf(writer, "\n")
-	fmt.Fprintf(writer, "  %2d", matrix[0][0])
+	_, _ = fmt.Fprintf(writer, "\n")
+	_, _ = fmt.Fprintf(writer, "  %2d", matrix[0][0])
 	for j := range target {
-		fmt.Fprintf(writer, " %2d", matrix[0][j+1])
+		_, _ = fmt.Fprintf(writer, " %2d", matrix[0][j+1])
 	}
-	fmt.Fprintf(writer, "\n")
+	_, _ = fmt.Fprintf(writer, "\n")
 	for i, sourceRune := range source {
-		fmt.Fprintf(writer, "%c %2d", sourceRune, matrix[i+1][0])
+		_, _ = fmt.Fprintf(writer, "%c %2d", sourceRune, matrix[i+1][0])
 		for j := range target {
-			fmt.Fprintf(writer, " %2d", matrix[i+1][j+1])
+			_, _ = fmt.Fprintf(writer, " %2d", matrix[i+1][j+1])
 		}
-		fmt.Fprintf(writer, "\n")
+		_, _ = fmt.Fprintf(writer, "\n")
 	}
 }
 

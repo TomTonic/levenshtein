@@ -1,6 +1,7 @@
 package levenshtein
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"testing"
@@ -318,4 +319,78 @@ func ExampleWriteMatrix() {
 	// b  6  7  6  5  4  3  2  3  4  5
 	// o  7  8  7  6  5  4  3  2  3  4
 	// r  8  9  8  7  6  5  4  3  4  3
+}
+
+func TestEditOperationString(t *testing.T) {
+	if EditOperation(Match).String() != "match" {
+		t.Fatalf("unexpected Match.String(): %s", EditOperation(Match).String())
+	}
+	if EditOperation(Ins).String() != "ins" {
+		t.Fatalf("unexpected Ins.String(): %s", EditOperation(Ins).String())
+	}
+	if EditOperation(Sub).String() != "sub" {
+		t.Fatalf("unexpected Sub.String(): %s", EditOperation(Sub).String())
+	}
+	if EditOperation(Del).String() != "del" {
+		t.Fatalf("unexpected Del.String(): %s", EditOperation(Del).String())
+	}
+}
+
+func TestIdenticalRunes(t *testing.T) {
+	if !IdenticalRunes('a', 'a') {
+		t.Fatal("IdenticalRunes should return true for identical runes")
+	}
+	if IdenticalRunes('a', 'b') {
+		t.Fatal("IdenticalRunes should return false for different runes")
+	}
+}
+
+func TestMin(t *testing.T) {
+	if min(3, 5) != 3 {
+		t.Fatal("min(3,5) should be 3")
+	}
+	if min(10, -1) != -1 {
+		t.Fatal("min(10,-1) should be -1")
+	}
+}
+
+func TestRatioForMatrixZeroCase(t *testing.T) {
+	// empty source and target -> ratio 0
+	m := [][]int{{0}}
+	r := RatioForMatrix(m)
+	if r != 0 {
+		t.Fatalf("expected RatioForMatrix to return 0 for empty inputs, got %f", r)
+	}
+}
+
+func TestWriteMatrixOutput(t *testing.T) {
+	source := []rune("ab")
+	target := []rune("ac")
+	m := MatrixForStrings(source, target, DefaultOptions)
+	var buf bytes.Buffer
+	WriteMatrix(source, target, m, &buf)
+	out := buf.String()
+	expected := "      a  c\n   0  1  2\na  1  0  1\nb  2  1  2\n"
+	if out != expected {
+		t.Fatalf("WriteMatrix produced unexpected output.\nExpected:\n%sGot:\n%s", expected, out)
+	}
+}
+
+func TestDistanceWithCustomMatchFunction(t *testing.T) {
+	// custom match function that ignores case for ASCII letters
+	ci := func(a, b rune) bool {
+		if a >= 'A' && a <= 'Z' {
+			a = a - 'A' + 'a'
+		}
+		if b >= 'A' && b <= 'Z' {
+			b = b - 'A' + 'a'
+		}
+		return a == b
+	}
+	opts := DefaultOptions
+	opts.Matches = ci
+	d := DistanceForStrings([]rune("Hello"), []rune("hello"), opts)
+	if d != 0 {
+		t.Fatalf("expected distance 0 for case-insensitive match, got %d", d)
+	}
 }

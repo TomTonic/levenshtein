@@ -2,6 +2,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/TomTonic/levenshtein)](https://goreportcard.com/report/github.com/TomTonic/levenshtein)
 [![Go Reference](https://pkg.go.dev/badge/github.com/TomTonic/levenshtein.svg)](https://pkg.go.dev/github.com/TomTonic/levenshtein)
+[![Linter](https://github.com/TomTonic/levenshtein/actions/workflows/linter.yml/badge.svg)](https://github.com/TomTonic/levenshtein/actions/workflows/linter.yml)
 [![Tests](https://github.com/TomTonic/levenshtein/actions/workflows/coverage.yml/badge.svg?branch=main)](https://github.com/TomTonic/levenshtein/actions/workflows/coverage.yml)
 ![coverage](https://raw.githubusercontent.com/TomTonic/levenshtein/badges/.badges/main/coverage.svg)
 
@@ -131,7 +132,7 @@ This repository aims to be small, well-tested and CI-driven. Practices for maint
 ### Release management
 
 For small Go libraries the standard approach is Semantic Versioning using git
-tags and GitHub Releases. 
+tags and GitHub Releases.
 
 ### Problem Reports
 
